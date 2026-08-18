@@ -1,0 +1,72 @@
+services:
+  - type: web
+    name: restaurant-voice-agent-backend
+    runtime: python
+    region: singapore   # closest to India
+    plan: free
+    rootDir: .
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHONPATH
+        value: /opt/render/project/src
+      - key: APP_NAME
+        value: Restaurant Voice Agent
+      - key: DEBUG
+        value: "false"
+      - key: ALLOWED_ORIGINS
+        value: https://your-frontend.vercel.app,http://localhost:5173
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_EXPIRE_MINUTES
+        value: "1440"
+      - key: MONGODB_URI
+        sync: false          # Set manually in Render dashboard
+      - key: MONGODB_DB_NAME
+        value: restaurant_voice_agent
+      - key: GROQ_API_KEY
+        sync: false          # Set manually in Render dashboard
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: GROQ_MAX_TOKENS
+        value: "1024"
+      - key: GROQ_TEMPERATURE
+        value: "0.3"
+      - key: SARVAM_API_KEY
+        sync: false          # Set manually in Render dashboard
+      - key: SARVAM_STT_MODEL
+        value: "saarika:v2"
+      - key: SARVAM_TTS_MODEL
+        value: "bulbul:v1"
+      - key: SARVAM_TTS_VOICE
+        value: anushka
+      - key: SARVAM_LANGUAGE
+        value: en-IN
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
+        sync: false
+      - key: TWILIO_WEBHOOK_BASE_URL
+        sync: false          # Will be your Render URL e.g. https://xxx.onrender.com
+      - key: CHROMA_PERSIST_DIR
+        value: /tmp/chroma_db  # Ephemeral on Render free tier
+      - key: CHROMA_COLLECTION_NAME
+        value: restaurant_knowledge
+      - key: EMBEDDING_MODEL
+        value: sentence-transformers/all-MiniLM-L6-v2
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false          # Set a strong password in Render dashboard
+      - key: ADMIN_EMAIL
+        value: admin@restaurant.com
+      - key: RESTAURANT_NAME
+        value: My Restaurant
+      - key: DEFAULT_TAX_PERCENTAGE
+        value: "5.0"
+      - key: DEFAULT_DELIVERY_CHARGE
+        value: "30.0"
