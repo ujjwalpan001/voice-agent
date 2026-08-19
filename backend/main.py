@@ -13,6 +13,7 @@ from backend.config import settings
 from backend.database.mongodb import connect_db, close_db, get_admins_col, get_billing_config_col, get_restaurant_settings_col
 from backend.api import auth, menu, orders, billing, calls, admin
 from backend.api.calls_webhook import router as twilio_router
+from backend.api.voice_ws import router as voice_ws_router
 from backend.models.billing import BillingConfig
 from backend.models.restaurant import RestaurantSettings
 
@@ -98,7 +99,8 @@ app.include_router(orders.router, prefix=PREFIX)
 app.include_router(billing.router, prefix=PREFIX)
 app.include_router(calls.router, prefix=PREFIX)
 app.include_router(admin.router, prefix=PREFIX)
-app.include_router(twilio_router, prefix=PREFIX)  # Telephony webhooks
+app.include_router(twilio_router, prefix=PREFIX)   # Twilio webhooks
+app.include_router(voice_ws_router, prefix=PREFIX) # Pipecat WebSocket
 
 
 @app.get("/health")

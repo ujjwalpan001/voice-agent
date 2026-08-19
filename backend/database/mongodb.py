@@ -23,9 +23,9 @@ async def connect_db() -> None:
     global _client, _db
     _client = AsyncIOMotorClient(
         settings.MONGODB_URI,
-        serverSelectionTimeoutMS=5_000,   # Fail fast if Mongo not running
-        connectTimeoutMS=5_000,
-        socketTimeoutMS=10_000,
+        serverSelectionTimeoutMS=10_000,   # Generous for Atlas cold-start
+        connectTimeoutMS=10_000,
+        socketTimeoutMS=20_000,
     )
     _db = _client[settings.MONGODB_DB_NAME]
     # Ping to verify the connection is alive before returning

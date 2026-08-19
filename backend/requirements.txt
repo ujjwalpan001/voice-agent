@@ -23,3 +23,8 @@ Pillow==11.0.0
 openpyxl==3.1.5
 python-dotenv==1.0.1
 dnspython>=2.3.0        # required for mongodb+srv:// Atlas URIs
+
+# ─── Pipecat – real-time voice pipeline ──────────────────────────────────────
+pipecat-ai[silero,sarvam]==0.0.108
+numpy>=1.26.0
+scipy>=1.11.0
