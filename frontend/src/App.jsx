@@ -28,11 +28,11 @@ function App() {
   }
 
   if (needsSetup) {
-    return <Setup onSetupComplete={() => setNeedsSetup(false)} onLogin={setToken} />;
+    return <Setup onSetupComplete={() => setNeedsSetup(false)} onLogin={setToken} onToggle={() => setNeedsSetup(false)} />;
   }
 
   if (!token) {
-    return <Login onLogin={setToken} />;
+    return <Login onLogin={setToken} onToggle={() => setNeedsSetup(true)} />;
   }
 
   return (
@@ -74,7 +74,7 @@ function App() {
   );
 }
 
-function Login({ onLogin }) {
+function Login({ onLogin, onToggle }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -118,12 +118,17 @@ function Login({ onLogin }) {
           </div>
           <button type="submit">Access Dashboard</button>
         </form>
+        <div style={{marginTop: '1rem', textAlign: 'center'}}>
+          <span style={{color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline'}} onClick={onToggle}>
+            Need to setup an account?
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
-function Setup({ onSetupComplete, onLogin }) {
+function Setup({ onSetupComplete, onLogin, onToggle }) {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -180,6 +185,11 @@ function Setup({ onSetupComplete, onLogin }) {
           </div>
           <button type="submit">Create Admin & Login</button>
         </form>
+        <div style={{marginTop: '1rem', textAlign: 'center'}}>
+          <span style={{color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline'}} onClick={onToggle}>
+            Already have an account? Login here
+          </span>
+        </div>
       </div>
     </div>
   );
