@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+    ALLOWED_ORIGINS: str = "*"
 
     # ─── JWT ─────────────────────────────────────────────────────────────────
     JWT_SECRET: str = "change-me-in-production"
