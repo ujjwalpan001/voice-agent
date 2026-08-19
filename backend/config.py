@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     # ─── Restaurant ──────────────────────────────────────────────────────────
     RESTAURANT_NAME: str = "My Restaurant"
     RESTAURANT_PHONE: str = ""
+    TEST_PHONE_NUMBER: str = ""
     DEFAULT_TAX_PERCENTAGE: float = 5.0
     DEFAULT_DELIVERY_CHARGE: float = 30.0
 

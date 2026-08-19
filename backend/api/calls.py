@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, Query
 from backend.api.auth import get_current_admin
 from backend.database.mongodb import get_call_logs_col, get_conversations_col
 from backend.models.admin import AdminResponse
+from backend.config import settings
+from twilio.rest import Client
 
 router = APIRouter(prefix="/calls", tags=["Calls"])
 
@@ -55,3 +57,27 @@ async def get_call_conversation(
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conv
+
+
+@router.post("/trigger-outbound")
+async def trigger_outbound_call(
+    _: AdminResponse = Depends(get_current_admin),
+):
+    if not settings.TEST_PHONE_NUMBER:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="TEST_PHONE_NUMBER is not set in environment variables.")
+
+    try:
+        client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+        # Using the same incoming webhook URL to trigger Pipecat pipeline when answered
+        webhook_url = f"{settings.TWILIO_WEBHOOK_BASE_URL.rstrip('/')}/api/twilio/incoming"
+        
+        call = client.calls.create(
+            to=settings.TEST_PHONE_NUMBER,
+            from_=settings.TWILIO_PHONE_NUMBER,
+            url=webhook_url
+        )
+        return {"status": "success", "message": f"Calling {settings.TEST_PHONE_NUMBER}...", "call_sid": call.sid}
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"Failed to initiate call: {str(e)}")

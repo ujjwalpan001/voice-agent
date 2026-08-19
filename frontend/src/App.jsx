@@ -39,8 +39,9 @@ function App() {
       </div>
       
       <div className="main-content">
-        <header>
+        <header style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
           <h2>{activeTab === 'orders' ? 'Live Orders' : 'Menu Management'}</h2>
+          <CallMeButton token={token} />
         </header>
 
         {activeTab === 'orders' && <Orders token={token} />}
@@ -187,6 +188,43 @@ function Menu({ token }) {
           <p>Add some menu items via the API to see them here.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+function CallMeButton({ token }) {
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const triggerCall = async () => {
+    setLoading(true);
+    setMessage('');
+    try {
+      const res = await fetch(`${API_BASE}/calls/trigger-outbound`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed to call');
+      setMessage('Phone is ringing! 📞');
+      setTimeout(() => setMessage(''), 5000);
+    } catch (err) {
+      setMessage(`Error: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
+      {message && <span style={{fontSize: '0.875rem', color: message.startsWith('Error') ? 'var(--danger)' : 'var(--success)'}}>{message}</span>}
+      <button 
+        onClick={triggerCall} 
+        disabled={loading}
+        style={{width: 'auto', padding: '0.75rem 1.5rem', background: '#00e676', color: '#000'}}
+      >
+        {loading ? 'Calling...' : 'Call My Phone 📞'}
+      </button>
     </div>
   );
 }
