@@ -86,7 +86,7 @@ async def run_voice_pipeline(
     # ── STT ──────────────────────────────────────────────────────────────────
     stt = SarvamSTTService(
         api_key=settings.SARVAM_API_KEY,
-        model="saarika:v2",
+        settings=SarvamSTTService.Settings(model="saarika:v2.5"),
     )
 
     # ── LLM ──────────────────────────────────────────────────────────────────
@@ -98,10 +98,10 @@ async def run_voice_pipeline(
     # ── TTS ──────────────────────────────────────────────────────────────────
     tts = SarvamTTSService(
         api_key=settings.SARVAM_API_KEY,
-        voice_id=settings.SARVAM_TTS_VOICE,
         settings=SarvamTTSService.Settings(
-            model=settings.SARVAM_TTS_MODEL,
+            model="bulbul:v2",
             language=settings.SARVAM_LANGUAGE,
+            voice=settings.SARVAM_TTS_VOICE,
         ),
         sample_rate=8000,  # Match Twilio's 8 kHz mulaw stream
     )

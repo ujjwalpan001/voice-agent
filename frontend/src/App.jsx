@@ -7,6 +7,29 @@ const API_BASE = import.meta.env.VITE_API_URL || 'https://voice-agent-8sv8.onren
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [activeTab, setActiveTab] = useState('orders');
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [checkingSetup, setCheckingSetup] = useState(true);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/auth/has-admin`)
+      .then(res => res.json())
+      .then(data => {
+        setNeedsSetup(!data.has_admin);
+        setCheckingSetup(false);
+      })
+      .catch(err => {
+        console.error(err);
+        setCheckingSetup(false);
+      });
+  }, []);
+
+  if (checkingSetup) {
+    return <div style={{display: 'flex', height: '100vh', justifyContent: 'center', alignItems: 'center'}}>Loading...</div>;
+  }
+
+  if (needsSetup) {
+    return <Setup onSetupComplete={() => setNeedsSetup(false)} onLogin={setToken} />;
+  }
 
   if (!token) {
     return <Login onLogin={setToken} />;
@@ -52,8 +75,8 @@ function App() {
 }
 
 function Login({ onLogin }) {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   const handleLogin = async (e) => {
@@ -94,6 +117,68 @@ function Login({ onLogin }) {
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} />
           </div>
           <button type="submit">Access Dashboard</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Setup({ onSetupComplete, onLogin }) {
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSetup = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/auth/setup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username,
+          email,
+          password,
+          full_name: fullName
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Setup failed');
+      
+      localStorage.setItem('token', data.access_token);
+      onLogin(data.access_token);
+      onSetupComplete();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <div className="login-container">
+      <div className="login-box">
+        <h1>Initial Setup</h1>
+        <p style={{marginBottom: '1rem', color: 'var(--text-muted)'}}>Create the first admin account</p>
+        {error && <p style={{color: 'var(--danger)', marginBottom: '1rem'}}>{error}</p>}
+        <form onSubmit={handleSetup}>
+          <div className="input-group">
+            <label>Username</label>
+            <input required value={username} onChange={e => setUsername(e.target.value)} />
+          </div>
+          <div className="input-group">
+            <label>Email</label>
+            <input type="email" required value={email} onChange={e => setEmail(e.target.value)} />
+          </div>
+          <div className="input-group">
+            <label>Full Name</label>
+            <input value={fullName} onChange={e => setFullName(e.target.value)} />
+          </div>
+          <div className="input-group">
+            <label>Password</label>
+            <input type="password" required value={password} onChange={e => setPassword(e.target.value)} />
+          </div>
+          <button type="submit">Create Admin & Login</button>
         </form>
       </div>
     </div>

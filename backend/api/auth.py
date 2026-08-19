@@ -12,8 +12,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 from backend.config import settings
 from backend.database.mongodb import get_admins_col
-from backend.models.admin import AdminResponse, TokenResponse, LoginRequest
-
+from backend.models.admin import AdminResponse, TokenResponse, LoginRequest, AdminCreate
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -64,6 +63,40 @@ async def get_current_admin(token: str = Depends(oauth2_scheme)) -> AdminRespons
 
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
+
+@router.get("/has-admin")
+async def has_admin():
+    col = get_admins_col()
+    count = await col.count_documents({})
+    return {"has_admin": count > 0}
+
+@router.post("/setup", response_model=TokenResponse)
+async def setup_admin(admin_data: AdminCreate):
+    col = get_admins_col()
+    if await col.count_documents({}) > 0:
+        raise HTTPException(status_code=400, detail="Admin already exists")
+    
+    hashed = hash_password(admin_data.password)
+    new_admin = {
+        "username": admin_data.username,
+        "email": admin_data.email,
+        "full_name": admin_data.full_name,
+        "hashed_password": hashed,
+        "is_active": True,
+    }
+    result = await col.insert_one(new_admin)
+    new_admin["_id"] = result.inserted_id
+    token = create_access_token({"sub": admin_data.username})
+    return TokenResponse(
+        access_token=token,
+        admin=AdminResponse(
+            id=str(new_admin["_id"]),
+            username=new_admin["username"],
+            email=new_admin["email"],
+            full_name=new_admin.get("full_name"),
+            is_active=new_admin["is_active"],
+        ),
+    )
 
 @router.post("/login", response_model=TokenResponse)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):

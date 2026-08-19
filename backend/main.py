@@ -46,19 +46,8 @@ async def lifespan(app: FastAPI):
 
 
 async def _bootstrap_defaults():
-    """Create admin user and default configs if they don't exist."""
-    admins_col = get_admins_col()
-    existing = await admins_col.find_one({"username": settings.ADMIN_USERNAME})
-    if not existing:
-        hashed = bcrypt.hashpw(settings.ADMIN_PASSWORD.encode(), bcrypt.gensalt()).decode()
-        await admins_col.insert_one({
-            "username": settings.ADMIN_USERNAME,
-            "email": settings.ADMIN_EMAIL,
-            "full_name": "Restaurant Admin",
-            "hashed_password": hashed,
-            "is_active": True,
-        })
-        logger.info(f"Default admin user '{settings.ADMIN_USERNAME}' created.")
+    # Admin is no longer bootstrapped here, handled via frontend setup API.
+    # We still bootstrap the billing config and restaurant settings if needed.
 
     billing_col = get_billing_config_col()
     if await billing_col.count_documents({}) == 0:

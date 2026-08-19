@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # ─── Groq ────────────────────────────────────────────────────────────────
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "qwen/qwen3.6-27b"
     GROQ_MAX_TOKENS: int = 1024
     GROQ_TEMPERATURE: float = 0.3
 
@@ -52,9 +52,7 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     # ─── Admin ───────────────────────────────────────────────────────────────
-    ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD: str = "admin123"
-    ADMIN_EMAIL: str = "admin@restaurant.com"
+    # Admin is now created dynamically via the frontend/setup endpoint.
 
     # ─── Restaurant ──────────────────────────────────────────────────────────
     RESTAURANT_NAME: str = "My Restaurant"
