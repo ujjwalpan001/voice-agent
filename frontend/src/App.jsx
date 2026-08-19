@@ -1,122 +1,193 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState, useEffect } from 'react';
+import './index.css';
+
+const API_BASE = 'http://localhost:8000/api';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [activeTab, setActiveTab] = useState('orders');
+
+  if (!token) {
+    return <Login onLogin={setToken} />;
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
+    <div className="dashboard">
+      <div className="sidebar">
+        <div className="brand">Voice<span>Agent</span></div>
+        <div 
+          className={`nav-link ${activeTab === 'orders' ? 'active' : ''}`}
+          onClick={() => setActiveTab('orders')}
         >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+          Orders
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
+        <div 
+          className={`nav-link ${activeTab === 'menu' ? 'active' : ''}`}
+          onClick={() => setActiveTab('menu')}
+        >
+          Menu
         </div>
-      </section>
+        <div style={{marginTop: 'auto'}}>
+          <div className="nav-link" onClick={() => {
+            localStorage.removeItem('token');
+            setToken(null);
+          }}>
+            Logout
+          </div>
+        </div>
+      </div>
+      
+      <div className="main-content">
+        <header>
+          <h2>{activeTab === 'orders' ? 'Live Orders' : 'Menu Management'}</h2>
+        </header>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+        {activeTab === 'orders' && <Orders token={token} />}
+        {activeTab === 'menu' && <Menu token={token} />}
+      </div>
+    </div>
+  );
 }
 
-export default App
+function Login({ onLogin }) {
+  const [username, setUsername] = useState('admin');
+  const [password, setPassword] = useState('admin123');
+  const [error, setError] = useState('');
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    try {
+      const formData = new URLSearchParams();
+      formData.append('username', username);
+      formData.append('password', password);
+
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData,
+      });
+
+      if (!res.ok) throw new Error('Invalid credentials');
+      
+      const data = await res.json();
+      localStorage.setItem('token', data.access_token);
+      onLogin(data.access_token);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <div className="login-container">
+      <div className="login-box">
+        <h1>Welcome Back</h1>
+        {error && <p style={{color: 'var(--danger)', marginBottom: '1rem'}}>{error}</p>}
+        <form onSubmit={handleLogin}>
+          <div className="input-group">
+            <label>Username</label>
+            <input value={username} onChange={e => setUsername(e.target.value)} />
+          </div>
+          <div className="input-group">
+            <label>Password</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} />
+          </div>
+          <button type="submit">Access Dashboard</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Orders({ token }) {
+  const [orders, setOrders] = useState([]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/orders`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(async r => {
+        if (!r.ok) {
+          if (r.status === 401) {
+             localStorage.removeItem('token');
+             window.location.reload();
+          }
+          throw new Error('Failed to fetch');
+        }
+        return r.json();
+      })
+      .then(data => {
+        if (Array.isArray(data)) setOrders(data);
+        else setOrders([]);
+      })
+      .catch(console.error);
+  }, [token]);
+
+  return (
+    <div className="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Order ID</th>
+            <th>Customer Phone</th>
+            <th>Total</th>
+            <th>Status</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map(o => (
+            <tr key={o.id}>
+              <td>...{o.id.slice(-6)}</td>
+              <td>{o.customer_phone}</td>
+              <td>${o.total_amount.toFixed(2)}</td>
+              <td><span className={`badge ${o.status}`}>{o.status}</span></td>
+              <td>{new Date(o.created_at).toLocaleTimeString()}</td>
+            </tr>
+          ))}
+          {orders.length === 0 && (
+            <tr><td colSpan="5">No orders yet. Start calling your Twilio number!</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Menu({ token }) {
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/menu/items`)
+      .then(async r => {
+        if (!r.ok) throw new Error('Failed to fetch');
+        return r.json();
+      })
+      .then(data => {
+        if (Array.isArray(data)) setItems(data);
+        else setItems([]);
+      })
+      .catch(console.error);
+  }, []);
+
+  return (
+    <div className="grid">
+      {items.map(item => (
+        <div className="menu-item" key={item.id}>
+          <h3>{item.name}</h3>
+          <p style={{color: 'var(--text-muted)', fontSize: '0.875rem', margin: '0.5rem 0'}}>
+            {item.description}
+          </p>
+          <div className="price">${item.price.toFixed(2)}</div>
+        </div>
+      ))}
+      {items.length === 0 && (
+        <div className="menu-item">
+          <h3>No Menu Items</h3>
+          <p>Add some menu items via the API to see them here.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
