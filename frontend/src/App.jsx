@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import './index.css';
 
-const API_BASE = 'http://localhost:8000/api';
+// Use the environment variable if set (like in Vercel), otherwise use the Render backend URL
+const API_BASE = import.meta.env.VITE_API_URL || 'https://voice-agent-8sv8.onrender.com/api';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
