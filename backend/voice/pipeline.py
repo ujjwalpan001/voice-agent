@@ -1,36 +1,32 @@
 """
-Real-time voice pipeline using Pipecat 0.0.108.
+Real-time voice pipeline using Pipecat 0.0.108 and LangGraph.
 
 Architecture per call:
   Twilio WebSocket (raw mulaw audio)
     ↓ FastAPIWebsocketTransport (input)
     ↓ SileroVAD (end-of-turn detection)
     ↓ SarvamSTT (speech → text)
-    ↓ LLMUserContextAggregator (transcript → messages frame)
-    ↓ GroqLLMService (LLM inference)
-    ↓ LLMAssistantContextAggregator (stores reply)
+    ↓ LangGraphAgentProcessor (runs the LangGraph agent turn, fetches DB/tools)
     ↓ SarvamTTS (text → streaming audio via WebSocket)
     ↓ FastAPIWebsocketTransport (output back to Twilio)
-
-Result: continuous bidirectional audio with ~700ms turn latency
-instead of the 2-4s round-trip of the old <Gather> polling approach.
 """
 import logging
-
 from fastapi import WebSocket
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.frames.frames import EndFrame, LLMMessagesFrame
+from pipecat.frames.frames import (
+    Frame,
+    TranscriptionFrame,
+    TextFrame,
+    LLMFullResponseStartFrame,
+    LLMFullResponseEndFrame,
+    EndFrame,
+)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
-from pipecat.processors.aggregators.llm_response import (
-    LLMUserContextAggregator,
-    LLMAssistantContextAggregator,
-)
-from pipecat.services.groq.llm import GroqLLMService
+from pipecat.processors.frame_processor import FrameProcessor, FrameDirection
 from pipecat.services.sarvam.stt import SarvamSTTService
 from pipecat.services.sarvam.tts import SarvamTTSService
 from pipecat.transports.websocket.fastapi import (
@@ -38,24 +34,77 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 
-from backend.agent.prompts import SYSTEM_PROMPT
 from backend.config import settings
+from backend.agent.graph import run_agent_turn
 
 logger = logging.getLogger(__name__)
 
 
-def _build_system_prompt(customer_phone: str) -> str:
-    """Inject restaurant name and caller phone into the system prompt."""
-    prompt = SYSTEM_PROMPT
-    try:
-        prompt = prompt.format(
-            restaurant_name=settings.RESTAURANT_NAME,
-            customer_phone=customer_phone,
-        )
-    except (KeyError, IndexError):
-        pass
-    return prompt
+# ─── LangGraph Agent Bridge Processor ─────────────────────────────────────────
 
+class LangGraphAgentProcessor(FrameProcessor):
+    """
+    Bridges Pipecat's frame-based voice loop with the compiled LangGraph agent.
+    Intercepts transcribed text frames, runs the state graph turn (DB, cart, RAG),
+    and pushes natural language response text downstream.
+    """
+    def __init__(self, call_id: str, session_id: str, customer_phone: str):
+        super().__init__()
+        self.call_id = call_id
+        self.session_id = session_id
+        self.customer_phone = customer_phone
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        
+        if isinstance(frame, TranscriptionFrame):
+            user_text = frame.text.strip()
+            if not user_text:
+                await self.push_frame(frame, direction)
+                return
+                
+            logger.info(f"[{self.call_id}] Processing turn through LangGraph agent for user speech: '{user_text}'")
+            try:
+                # Execute turn in LangGraph graph (database writes and tools are run inside the nodes)
+                result = await run_agent_turn(
+                    call_id=self.call_id,
+                    session_id=self.session_id,
+                    customer_phone=self.customer_phone,
+                    user_input=user_text
+                )
+                import re
+                response_text = result.get("agent_response", "")
+                
+                # Strip out any <think>...</think> blocks and their content (common in Qwen/reasoning models)
+                response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL | re.IGNORECASE)
+                response_text = re.sub(r'<think>.*', '', response_text, flags=re.DOTALL | re.IGNORECASE)
+                response_text = response_text.strip()
+                
+                should_end = result.get("should_end", False)
+                
+                # Push start of response
+                await self.push_frame(LLMFullResponseStartFrame(), direction)
+                
+                # Push the agent's natural text response downstream to TTS
+                await self.push_frame(TextFrame(response_text), direction)
+                
+                # Push end of response
+                await self.push_frame(LLMFullResponseEndFrame(), direction)
+                
+                if should_end:
+                    logger.info(f"[{self.call_id}] Agent requested call termination. Hanging up.")
+                    await self.push_frame(EndFrame(), direction)
+                    
+            except Exception as e:
+                logger.error(f"[{self.call_id}] Error in LangGraph turn execution: {e}", exc_info=True)
+                await self.push_frame(LLMFullResponseStartFrame(), direction)
+                await self.push_frame(TextFrame("Sorry, I had trouble processing that. Could you repeat?"), direction)
+                await self.push_frame(LLMFullResponseEndFrame(), direction)
+        else:
+            await self.push_frame(frame, direction)
+
+
+# ─── Production Voice Pipeline Runner ─────────────────────────────────────────
 
 async def run_voice_pipeline(
     websocket: WebSocket,
@@ -89,12 +138,6 @@ async def run_voice_pipeline(
         settings=SarvamSTTService.Settings(model="saarika:v2.5"),
     )
 
-    # ── LLM ──────────────────────────────────────────────────────────────────
-    llm = GroqLLMService(
-        api_key=settings.GROQ_API_KEY,
-        settings=GroqLLMService.Settings(model=settings.GROQ_MODEL),
-    )
-
     # ── TTS ──────────────────────────────────────────────────────────────────
     tts = SarvamTTSService(
         api_key=settings.SARVAM_API_KEY,
@@ -106,26 +149,21 @@ async def run_voice_pipeline(
         sample_rate=8000,  # Match Twilio's 8 kHz mulaw stream
     )
 
-    # ── Conversation context ──────────────────────────────────────────────────
-    messages = [
-        {"role": "system", "content": _build_system_prompt(customer_phone)}
-    ]
-    context = OpenAILLMContext(messages=messages)
-    context.set_llm_adapter(llm.get_llm_adapter())
-
-    user_aggregator = LLMUserContextAggregator(context)
-    assistant_aggregator = LLMAssistantContextAggregator(context)
+    # ── LangGraph Agent Processor ─────────────────────────────────────────────
+    agent_processor = LangGraphAgentProcessor(
+        call_id=call_id,
+        session_id=call_id,
+        customer_phone=customer_phone,
+    )
 
     # ── Pipeline ─────────────────────────────────────────────────────────────
     pipeline = Pipeline(
         [
             transport.input(),      # Raw audio in from Twilio WebSocket
             stt,                    # Audio → transcript text
-            user_aggregator,        # Transcript → OpenAI-format messages frame
-            llm,                    # Messages → LLM token stream
-            tts,                    # Token stream → audio chunks (streaming WS)
+            agent_processor,        # Intercepts text, executes LangGraph turn, outputs response text
+            tts,                    # Response text → audio chunks (streaming WS)
             transport.output(),     # Audio chunks → Twilio WebSocket
-            assistant_aggregator,   # Store assistant reply in context memory
         ]
     )
 

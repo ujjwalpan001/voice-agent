@@ -68,13 +68,29 @@ async def intent_detection_node(state: AgentState) -> AgentState:
     cart_items = cart.get("items", [])
     cart_summary = format_cart_for_voice(cart) if cart_items else "empty"
 
+    user_input_lower = user_input.strip().lower()
+    
+    # Fast rule-based bypass for intent detection to save Groq API tokens and reduce latency
+    rule_intent = None
+    if user_input_lower in ["hello", "hi", "hey", "hola", "namaste", "नमस्ते", "नमस्कार", "हेलो", "हेलो जी"]:
+        rule_intent = "greeting"
+    elif user_input_lower in ["view cart", "show cart", "cart", "चेक कार्ट", "कार्ट", "ऑर्डर दिखाओ"]:
+        rule_intent = "view_cart"
+    elif user_input_lower in ["bill", "checkout", "check bill", "टोटल", "बिल", "कितने पैसे हुए"]:
+        rule_intent = "bill_inquiry"
+    elif user_input_lower in ["bye", "goodbye", "exit", "quit", "अलविदा", "बाय"]:
+        rule_intent = "farewell"
+        
+    if rule_intent:
+        logger.info(f"Rule-based intent detected: {rule_intent!r} (Bypassed Groq LLM call!)")
+        return {**state, "current_intent": rule_intent}
+
     prompt = INTENT_DETECTION_PROMPT.format(
         user_input=user_input,
         cart_summary=cart_summary,
     )
     response = await groq_service.chat(
         messages=[{"role": "user", "content": prompt}],
-        model="llama-3.1-8b-instant",   # Fast model for classification
     )
     intent = groq_service.extract_text(response).strip().lower()
     # Sanitise
@@ -379,7 +395,27 @@ async def generate_response_node(state: AgentState) -> AgentState:
             "content": f"Relevant restaurant information:\n{context}",
         })
 
-    messages.extend(state.get("messages", []))
+    # Convert LangChain messages to standard dicts for raw Groq API
+    for msg in state.get("messages", []):
+        if isinstance(msg, dict):
+            messages.append(msg)
+        else:
+            role = "user"
+            msg_type = getattr(msg, "type", "user")
+            if msg_type == "human":
+                role = "user"
+            elif msg_type == "ai":
+                role = "assistant"
+            elif msg_type == "system":
+                role = "system"
+            elif msg_type == "tool":
+                role = "tool"
+            
+            dct = {"role": role, "content": msg.content}
+            if hasattr(msg, "name") and msg.name:
+                dct["name"] = msg.name
+            messages.append(dct)
+
     messages.append({"role": "user", "content": state.get("user_input", "")})
 
     response = await groq_service.chat(messages=messages)
