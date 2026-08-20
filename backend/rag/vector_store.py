@@ -4,8 +4,6 @@ Swap the implementation here without touching the rest of the RAG pipeline.
 """
 import logging
 from typing import List, Dict, Any, Optional
-import chromadb
-from chromadb.config import Settings as ChromaSettings
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
@@ -18,11 +16,13 @@ class VectorStore:
     """
 
     def __init__(self):
-        self._client: Optional[chromadb.Client] = None
+        self._client: Any = None
         self._collection = None
 
-    def _get_client(self) -> chromadb.Client:
+    def _get_client(self):
         if self._client is None:
+            import chromadb
+            from chromadb.config import Settings as ChromaSettings
             self._client = chromadb.PersistentClient(
                 path=settings.CHROMA_PERSIST_DIR,
                 settings=ChromaSettings(anonymized_telemetry=False),
