@@ -63,6 +63,56 @@ graph TD
     end
 ```
 
+### ⏱️ Sequential Timeline Workflow
+The sequence diagram below traces the step-by-step lifecycle of a single user spoken turn, showing the chronological interaction between the customer, Pipecat, STT/TTS services, the LangGraph state machine, the prompts library, and databases:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 👤 Customer
+    participant Transport as 🎙️ Pipecat Transport
+    participant STT as 📝 Sarvam STT (saarika:v2.5)
+    participant Bridge as 🔗 LangGraphAgentProcessor
+    participant Graph as 🤖 LangGraph State Machine
+    participant DB as 💾 MongoDB & ChromaDB
+    participant Prompt as 📜 SYSTEM_PROMPT (prompts.py)
+    participant LLM as 🧠 Groq LLM (qwen/qwen3.6-27b)
+    participant TTS as 🔊 Sarvam TTS (bulbul:v2)
+
+    User->>Transport: Speaks (Hindi/English)
+    Transport->>Transport: AudioResampler (downmix & downsample to 16kHz)
+    Transport->>Transport: VADProcessor (silence/speech detection)
+    Transport->>STT: Raw Audio chunks (via WebSocket)
+    STT->>STT: Transcribes stream concurrently
+    STT->>Bridge: Emits TranscriptionFrame (user text)
+    
+    Note over Bridge,Graph: Begins LangGraph turn execution
+    Bridge->>Graph: Invoke Graph (session_id, phone, user_text)
+    Graph->>DB: Node: load_session (query profile, load memory)
+    Graph->>LLM: Node: intent_detection (classify user intent)
+    LLM-->>Graph: Returns intent (e.g. menu_search, add_to_cart)
+    
+    alt Menu Search
+        Graph->>DB: Node: menu_search (MongoDB query)
+    else Cart Modification
+        Graph->>DB: Node: cart_management (MongoDB update)
+    else Query Info (RAG)
+        Graph->>DB: Node: rag_retrieval (ChromaDB query)
+    end
+    
+    Graph->>Prompt: Node: generate_response (inject settings, memory, and RAG context)
+    Prompt->>LLM: Send compiled SYSTEM_PROMPT + history
+    LLM-->>Graph: Stream text response (with <think> tags)
+    Graph->>Bridge: Compile final turn state dict
+    
+    Note over Bridge: Cleans text (removes <think>...</think> blocks)
+    Bridge->>TTS: Emit TextFrame (clean speech text)
+    
+    TTS->>TTS: Generate audio stream chunks
+    TTS->>Transport: Pushes OutputAudioRawFrames
+    Transport->>User: Playback audio via Speaker/Phone
+```
+
 ### 1. Real-Time Streaming Pipeline (Pipecat)
 *   **Audio Transport:** Handles audio ingestion. It runs locally via system audio devices (`LocalAudioTransport`) or in production via WebSockets connected to Twilio (`FastAPIWebsocketTransport`).
 *   **Software Resampler (`AudioResampler`):** Opens physical microphones at native settings (e.g., `44100 Hz` stereo) to ensure driver compatibility on Windows, downmixing channels to mono and downsampling the signal to `16000 Hz` in software.
