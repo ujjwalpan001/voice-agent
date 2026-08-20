@@ -37,3 +37,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Testing scripts
+test_local_mic.py
+test_text.py
