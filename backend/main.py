@@ -2,6 +2,14 @@
 FastAPI application entry point.
 Registers all routers, handles startup/shutdown, and bootstraps the admin user.
 """
+import os
+# Limit CPU thread pools to prevent out-of-memory errors on limited container instances (e.g. Render free tier)
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import logging
 import bcrypt
 from contextlib import asynccontextmanager
