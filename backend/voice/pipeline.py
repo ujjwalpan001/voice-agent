@@ -21,6 +21,7 @@ from pipecat.frames.frames import (
     TextFrame,
     LLMFullResponseStartFrame,
     LLMFullResponseEndFrame,
+    OutputAudioRawFrame,
     EndFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
@@ -34,6 +35,9 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 
+import os
+import wave
+import asyncio
 from backend.config import settings
 from backend.agent.graph import run_agent_turn
 
@@ -47,12 +51,80 @@ class LangGraphAgentProcessor(FrameProcessor):
     Bridges Pipecat's frame-based voice loop with the compiled LangGraph agent.
     Intercepts transcribed text frames, runs the state graph turn (DB, cart, RAG),
     and pushes natural language response text downstream.
+    
+    Includes production-grade pre-recorded filler playback to mask LLM generation
+    latency. Bypasses TTS for zero cost and instant audio startup.
     """
     def __init__(self, call_id: str, session_id: str, customer_phone: str):
         super().__init__()
         self.call_id = call_id
         self.session_id = session_id
         self.customer_phone = customer_phone
+        self.filler_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "fillers")
+        os.makedirs(self.filler_dir, exist_ok=True)
+        
+        # Predefined fillers map for latency masking
+        self.fillers = {
+            "cart_management": {
+                "text": "Theek hai, main aapka cart update kar rahi hoon.",
+                "file": "cart_update.wav"
+            },
+            "bill_inquiry": {
+                "text": "Ek second, main aapka total bill check karti hoon.",
+                "file": "bill_check.wav"
+            },
+            "confirm_order": {
+                "text": "Sure, main aapka order confirm kar rahi hoon, please wait.",
+                "file": "order_confirm.wav"
+            },
+            "menu_search": {
+                "text": "Theek hai, ek second main menu check karti hoon.",
+                "file": "menu_check.wav"
+            },
+            "default": {
+                "text": "Hmm, main check karti hoon.",
+                "file": "general_wait.wav"
+            }
+        }
+
+    async def _play_audio_file(self, file_name: str, direction: FrameDirection):
+        """Streams a pre-generated WAV file downstream as raw audio frames in real time."""
+        file_path = os.path.join(self.filler_dir, file_name)
+        if not os.path.exists(file_path):
+            return False
+            
+        try:
+            def read_wav():
+                with wave.open(file_path, "rb") as wav:
+                    params = wav.getparams()
+                    frames = wav.readframes(wav.getnframes())
+                    return params, frames
+                    
+            params, frames = await asyncio.to_thread(read_wav)
+            rate = params.framerate
+            channels = params.nchannels
+            width = params.sampwidth
+            
+            # 100ms audio chunk size
+            chunk_size = int(rate * channels * width * 0.1)
+            
+            logger.info(f"[{self.call_id}] Streaming pre-recorded filler '{file_name}' ({rate}Hz) downstream...")
+            for i in range(0, len(frames), chunk_size):
+                chunk = frames[i:i + chunk_size]
+                if len(chunk) < chunk_size:
+                    chunk += b'\x00' * (chunk_size - len(chunk))
+                    
+                audio_frame = OutputAudioRawFrame(
+                    audio=chunk,
+                    sample_rate=rate,
+                    num_channels=channels
+                )
+                await self.push_frame(audio_frame, direction)
+                await asyncio.sleep(0.1)
+            return True
+        except Exception as e:
+            logger.error(f"[{self.call_id}] Error streaming filler audio file: {e}")
+            return False
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -64,14 +136,51 @@ class LangGraphAgentProcessor(FrameProcessor):
                 return
                 
             logger.info(f"[{self.call_id}] Processing turn through LangGraph agent for user speech: '{user_text}'")
+            
+            # Predict intent for filler selection
+            user_text_lower = user_text.lower()
+            intent = "default"
+            if any(k in user_text_lower for k in ["bill", "checkout", "total", "बिल", "पैसे"]):
+                intent = "bill_inquiry"
+            elif any(k in user_text_lower for k in ["confirm", "place", "order", "ऑर्डर", "कन्फर्म"]):
+                intent = "confirm_order"
+            elif any(k in user_text_lower for k in ["view", "cart", "show", "कार्ट"]):
+                intent = "cart_management"
+            elif any(k in user_text_lower for k in ["search", "menu", "find", "category", "पिज़्ज़ा", "biryani", "burger", "चाहिए"]):
+                intent = "menu_search"
+                
+            filler_task = None
+            filler = self.fillers.get(intent)
+            
+            # Skip playing fillers for simple greetings and farewells
+            if not any(k in user_text_lower for k in ["hello", "hi", "hey", "namaste", "bye", "goodbye", "नमस्ते", "बाय"]):
+                file_path = os.path.join(self.filler_dir, filler["file"])
+                if os.path.exists(file_path):
+                    # Start playing pre-recorded audio in background
+                    filler_task = asyncio.create_task(self._play_audio_file(filler["file"], direction))
+                else:
+                    # Fallback to TTS (synthesize filler) if pre-recorded file is missing
+                    logger.info(f"[{self.call_id}] Audio file missing. Falling back to TTS for filler: '{filler['text']}'")
+                    await self.push_frame(LLMFullResponseStartFrame(), direction)
+                    await self.push_frame(TextFrame(filler["text"]), direction)
+                    await self.push_frame(LLMFullResponseEndFrame(), direction)
+            
             try:
-                # Execute turn in LangGraph graph (database writes and tools are run inside the nodes)
-                result = await run_agent_turn(
+                # Run the LangGraph agent turn concurrently in the background
+                turn_task = asyncio.create_task(run_agent_turn(
                     call_id=self.call_id,
                     session_id=self.session_id,
                     customer_phone=self.customer_phone,
                     user_input=user_text
-                )
+                ))
+                
+                # Await the LangGraph turn execution
+                result = await turn_task
+                
+                # Ensure the background filler audio completes playing before we push the main response
+                if filler_task:
+                    await filler_task
+                    
                 import re
                 response_text = result.get("agent_response", "")
                 
