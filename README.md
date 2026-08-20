@@ -6,111 +6,73 @@ A high-performance, real-time conversational AI voice ordering agent built for r
 
 ## 🎙️ Architecture & Workflow
 
-The voice agent bridges real-time audio input/output with an LLM-driven state machine. Below is the complete detailed flowchart of the system, illustrating how audio flows from the microphone, through the resampler and STT, into the LangGraph state nodes, queries databases, and plays back via TTS:
+The voice agent bridges real-time audio input/output with an LLM-driven state machine. Below is the complete, unified system flowchart representing the entire pipeline from audio intake to agent execution, external database queries, and speech synthesis playback:
 
 ```mermaid
-graph TD
-    %% Audio Input Layer
-    subgraph Audio Input Layer (Pipecat)
-        A[Microphone / Twilio Webhook] -->|Raw Audio: 44.1kHz Stereo| B[InputMuter]
-        B -->|Audio Raw Frames| C[AudioResampler]
-        C -->|16kHz Mono PCM| D[VAD Processor]
-        D -->|VAD Speech Events| E[Sarvam STT Service]
+flowchart TB
+    %% Phase 1: High-Speed Webhook/Audio Intake
+    subgraph Phase1["Phase 1: Real-Time Audio Intake & Pipeline (Pipecat)"]
+        direction TB
+        A[Microphone / Twilio Webhook] -->|Raw Audio: 44.1kHz Stereo| B[InputMuter Echo Gate]
+        B -->|Unmuted Audio| C[AudioResampler Engine]
+        C -->|16kHz Mono PCM| D[VAD Processor: Silero VAD]
+        D -->|VAD Speech Frames| E[Sarvam STT Service: saarika:v2.5]
     end
 
-    %% Transcription & Core Bridge
-    subgraph Conversation Bridge
-        E -->|WebSocket Streaming Audio| F(Sarvam STT Server)
-        F -->|Transcribed Text| G[TranscriptionFrame]
-        G -->|Intercept Transcript| H[LangGraphAgentProcessor]
-    end
-
-    %% LangGraph State Machine Layer
-    subgraph LangGraph State Machine (AgentState)
-        H -->|run_agent_turn| I[load_session]
-        I -->|intent_detection| J[intent_detection]
-        J -->|route_by_intent| K{Intent Router}
+    %% Phase 2: LangGraph Agent Pipeline
+    subgraph Phase2["Phase 2: LangGraph Agent Pipeline"]
+        direction TB
+        H[LangGraphAgentProcessor Bridge] -->|1. Invoke Graph| I[load_session Node]
+        I -->|2. Check Intent| J[intent_detection Node]
+        J -->|3. route_by_intent| K{Intent Router}
         
         %% Routing Nodes
-        K -->|greeting / farewell| L[generate_response]
-        K -->|restaurant info| M[rag_retrieval]
-        K -->|menu search| N[menu_search]
-        K -->|cart operation| O[cart_management]
-        K -->|bill inquiry| P[billing_node]
-        K -->|delivery details| Q[collect_info]
-        K -->|confirm order| R[order_confirmation]
-        K -->|order status| S[order_status]
-        K -->|cancel order| T[end_call]
+        K -->|greeting / farewell / other| L[generate_response Node]
+        K -->|restaurant policy inquiry| M[rag_retrieval Node]
+        K -->|menu search & browsing| N[menu_search Node]
+        K -->|cart modifications| O[cart_management Node]
+        K -->|bill summary request| P[billing_node Node]
+        K -->|delivery details| Q[collect_info Node]
+        K -->|confirm purchase| R[order_confirmation Node]
+        K -->|check order status| S[order_status Node]
+        K -->|cancel call| T[end_call Node]
 
-        %% Subgraph Transitions
+        %% Node Transitions
         M --> L
         N & O & P & Q & R & S & L & T --> U([End Graph Turn])
     end
 
-    %% Database Layer
-    subgraph Database Layer
-        I & R & S & N & O & P --> DB[(MongoDB Atlas)]
-        M --> VectorDB[(ChromaDB)]
+    %% Phase 3: External AI & Data Services
+    subgraph Phase3["Phase 3: External Services & Data Layer"]
+        direction LR
+        MongoDB[(MongoDB Atlas)]
+        ChromaDB[(ChromaDB Vector Store)]
+        GroqAPI[🧠 Groq API: qwen/qwen3.6-27b]
+        SarvamSTT(📝 Sarvam STT WebSocket Server)
+        SarvamTTS(🔊 Sarvam TTS WebSocket Server)
     end
 
-    %% Audio Output Layer
-    subgraph Audio Output Layer (Pipecat)
-        U -->|Extract agent_response| V[Response Sanitizer]
-        V -->|Strip think tags| W[Sarvam TTS Service]
-        W -->|WebSocket Streaming Text| X(Sarvam TTS Server)
-        X -->|Audio Stream Chunks| Y[LocalAudioOutputTransport]
-        Y -->|Play Speaker Audio| Z[Speaker / Twilio Audio Out]
+    %% Phase 4: Output & Playback
+    subgraph Phase4["Phase 4: Output & Playback (Pipecat)"]
+        direction TB
+        V[Response Sanitizer: regex filter] --> W[Sarvam TTS Service: bulbul:v2]
+        W --> X[LocalAudioOutputTransport / Twilio]
+        X --> Y[Speaker / Telephony Audio Out]
     end
-```
 
-### ⏱️ Sequential Timeline Workflow
-The sequence diagram below traces the step-by-step lifecycle of a single user spoken turn, showing the chronological interaction between the customer, Pipecat, STT/TTS services, the LangGraph state machine, the prompts library, and databases:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as 👤 Customer
-    participant Transport as 🎙️ Pipecat Transport
-    participant STT as 📝 Sarvam STT (saarika:v2.5)
-    participant Bridge as 🔗 LangGraphAgentProcessor
-    participant Graph as 🤖 LangGraph State Machine
-    participant DB as 💾 MongoDB & ChromaDB
-    participant Prompt as 📜 SYSTEM_PROMPT (prompts.py)
-    participant LLM as 🧠 Groq LLM (qwen/qwen3.6-27b)
-    participant TTS as 🔊 Sarvam TTS (bulbul:v2)
-
-    User->>Transport: Speaks (Hindi/English)
-    Transport->>Transport: AudioResampler (downmix & downsample to 16kHz)
-    Transport->>Transport: VADProcessor (silence/speech detection)
-    Transport->>STT: Raw Audio chunks (via WebSocket)
-    STT->>STT: Transcribes stream concurrently
-    STT->>Bridge: Emits TranscriptionFrame (user text)
+    %% Cross-Subsystem Connections (Streaming)
+    E -->|WebSocket chunks| SarvamSTT
+    SarvamSTT -->|Transcribed Text| H
     
-    Note over Bridge,Graph: Begins LangGraph turn execution
-    Bridge->>Graph: Invoke Graph (session_id, phone, user_text)
-    Graph->>DB: Node: load_session (query profile, load memory)
-    Graph->>LLM: Node: intent_detection (classify user intent)
-    LLM-->>Graph: Returns intent (e.g. menu_search, add_to_cart)
+    %% Graph Database / LLM connections
+    I & R & S & N & O & P <-->|Reads & Writes| MongoDB
+    M <-->|Semantic Search Query| ChromaDB
+    J & L <-->|LLM Inference Completions| GroqAPI
     
-    alt Menu Search
-        Graph->>DB: Node: menu_search (MongoDB query)
-    else Cart Modification
-        Graph->>DB: Node: cart_management (MongoDB update)
-    else Query Info (RAG)
-        Graph->>DB: Node: rag_retrieval (ChromaDB query)
-    end
-    
-    Graph->>Prompt: Node: generate_response (inject settings, memory, and RAG context)
-    Prompt->>LLM: Send compiled SYSTEM_PROMPT + history
-    LLM-->>Graph: Stream text response (with <think> tags)
-    Graph->>Bridge: Compile final turn state dict
-    
-    Note over Bridge: Cleans text (removes <think>...</think> blocks)
-    Bridge->>TTS: Emit TextFrame (clean speech text)
-    
-    TTS->>TTS: Generate audio stream chunks
-    TTS->>Transport: Pushes OutputAudioRawFrames
-    Transport->>User: Playback audio via Speaker/Phone
+    %% Output streaming connections
+    U -->|Extract agent_response| V
+    W -->|WebSocket text| SarvamTTS
+    SarvamTTS -->|Synthesized Chunks| X
 ```
 
 ### 1. Real-Time Streaming Pipeline (Pipecat)
@@ -127,36 +89,7 @@ Bridges the streaming Pipecat pipeline with the LangGraph state machine. It inte
 
 ## 🤖 LangGraph State Machine
 
-The conversation is modeled as a StateGraph (`restaurant_graph`) in [backend/agent/graph.py](file:///c:/Users/ujjwa/OneDrive/Desktop/voice-agent/backend/agent/graph.py). This enforces structure, validates order state in MongoDB, and executes tool logic.
-
-```mermaid
-flowchart TD
-    Start([User Speech]) --> load_session[1. load_session]
-    load_session --> intent_detection[2. intent_detection]
-    
-    intent_detection --> route{route_by_intent}
-    
-    route -->|greeting, info, other| generate_response[10. generate_response]
-    route -->|menu_search, browse| menu_search[4. menu_search]
-    route -->|add, remove, view cart| cart_management[5. cart_management]
-    route -->|bill_inquiry| billing_node[6. billing_node]
-    route -->|delivery_info| collect_info[7. collect_info]
-    route -->|confirm_order| order_confirmation[8. order_confirmation]
-    route -->|order_status| order_status[9. order_status]
-    route -->|cancel_order| end_call[11. end_call]
-    
-    route -->|restaurant_info query| rag_retrieval[3. rag_retrieval]
-    rag_retrieval --> generate_response
-    
-    menu_search --> End([End Graph Turn])
-    cart_management --> End
-    billing_node --> End
-    collect_info --> End
-    order_confirmation --> End
-    order_status --> End
-    generate_response --> End
-    end_call --> End
-```
+The conversation is modeled as a StateGraph (`restaurant_graph`) in [backend/agent/graph.py](file:///c:/Users/ujjwa/OneDrive/Desktop/voice-agent/backend/agent/graph.py). This enforces structure, validates order state in MongoDB, and executes tool logic. Refer to **Phase 2** of the unified workflow diagram above to visualize the complete graph routing and state transitions.
 
 ### State Definition (`AgentState`)
 Defined in [backend/agent/state.py](file:///c:/Users/ujjwa/OneDrive/Desktop/voice-agent/backend/agent/state.py), the shared state object contains:
